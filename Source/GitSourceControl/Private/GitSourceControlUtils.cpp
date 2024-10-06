@@ -1544,7 +1544,10 @@ bool GetAllLocks(const FString& InRepositoryRoot, const FString& GitBinaryFallba
 				OutLocks.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
 			}
 			FGitLockedFilesCache::LastUpdated = CurrentTime;
-			FGitLockedFilesCache::SetLockedFiles(OutLocks);
+			if (!OutLocks.IsEmpty())
+			{
+				FGitLockedFilesCache::SetLockedFiles(OutLocks);
+			}
 			return bResult;
 		}
 		// We tried to invalidate the UE cache, but we failed for some reason. Try updating lock state from LFS cache.
