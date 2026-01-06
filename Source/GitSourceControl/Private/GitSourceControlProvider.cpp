@@ -762,23 +762,7 @@ ECommandResult::Type FGitSourceControlProvider::ExecuteSynchronousCommand(FGitSo
 		FScopedSourceControlProgress Progress(TaskText);
 
 		// Issue the command asynchronously...
-		IssueCommand( InCommand );
-
-		// ... then wait for its completion (thus making it synchronous)
-		while (!InCommand.IsCanceled() && CommandQueue.Contains(&InCommand))
-		{
-			// Tick the command queue and update progress.
-			Tick();
-
-			if (i >= 20) {
-				Progress.Tick();
-				i = 0;
-			}
-			i++;
-
-			// Sleep for a bit so we don't busy-wait so much.
-			FPlatformProcess::Sleep(0.01f);
-		}
+		IssueCommand(InCommand, true);
 
 		if (InCommand.bCancelled)
 		{
