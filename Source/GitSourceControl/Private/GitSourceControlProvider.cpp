@@ -762,7 +762,29 @@ ECommandResult::Type FGitSourceControlProvider::ExecuteSynchronousCommand(FGitSo
 		FScopedSourceControlProgress Progress(TaskText);
 
 		// Issue the command asynchronously...
-		IssueCommand(InCommand, true);
+		IssueCommand(InCommand);
+		
+		// Wait for it effectively making it sync but allowing tick at 60hz to update ed UI.
+		constexpr double TargetDelta = 1.0 / 60.0;
+		double LastTime = FPlatformTime::Seconds();
+
+		while (!InCommand.IsCanceled() && CommandQueue.Contains(&InCommand))
+		{
+			const double Now = FPlatformTime::Seconds();
+			const double Delta = Now - LastTime;
+			LastTime = Now;
+
+			Tick();
+			Progress.Tick();
+
+			const double WorkTime = FPlatformTime::Seconds() - Now;
+			const double SleepTime = TargetDelta - WorkTime;
+
+			if (SleepTime > 0.0)
+			{
+				FPlatformProcess::Sleep(SleepTime);
+			}
+		}
 
 		if (InCommand.bCancelled)
 		{
