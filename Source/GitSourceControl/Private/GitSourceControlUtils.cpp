@@ -80,7 +80,9 @@ FDateTime FGitLockedFilesCache::LastUpdated = FDateTime::MinValue();
 TMap<FString, FString> FGitLockedFilesCache::LockedFiles = TMap<FString, FString>();
 
 void FGitLockedFilesCache::SetLockedFiles(const TMap<FString, FString>& newLocks)
-{	
+{
+	if (newLocks.IsEmpty()) return;
+	
 	for (auto lock : LockedFiles)
 	{
 		if (!newLocks.Contains(lock.Key))
