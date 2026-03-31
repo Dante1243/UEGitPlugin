@@ -78,44 +78,84 @@ const FString& FGitScopedTempFile::GetFilename() const
 
 FDateTime FGitLockedFilesCache::LastUpdated = FDateTime::MinValue();
 TMap<FString, FString> FGitLockedFilesCache::LockedFiles = TMap<FString, FString>();
+FCriticalSection FGitLockedFilesCache::LockedFilesMutex;
+
+const TMap<FString, FString>& FGitLockedFilesCache::GetLockedFiles()
+{
+	FScopeLock ScopeLock(&LockedFilesMutex);
+	return LockedFiles;
+}
 
 void FGitLockedFilesCache::SetLockedFiles(const TMap<FString, FString>& newLocks)
 {
 	if (newLocks.IsEmpty()) return;
-	
-	for (auto lock : LockedFiles)
+    
+	TMap<FString, FString> LockedFilesCopy;
 	{
-		if (!newLocks.Contains(lock.Key))
+		FScopeLock ScopeLock(&LockedFilesMutex);
+		LockedFilesCopy = LockedFiles;
+	}
+    
+	TArray<TPair<FString, FString>> FilesToUnlock;
+	TArray<TPair<FString, FString>> FilesToLock;
+
+	for (const TPair<FString, FString>& Lock : LockedFilesCopy)
+	{
+		if (!newLocks.Contains(Lock.Key))
 		{
-			OnFileLockChanged(lock.Key, lock.Value, false);
+			FilesToUnlock.Add(Lock);
 		}
 	}
-	
-	for (auto lock : newLocks)
-	{		
-		if (!LockedFiles.Contains(lock.Key))
+	for (const TPair<FString, FString>& Lock : newLocks)
+	{     
+		if (!LockedFilesCopy.Contains(Lock.Key))
 		{
-			OnFileLockChanged(lock.Key, lock.Value, true);
-		}		
+			FilesToLock.Add(Lock);
+		}     
 	}
 
-	LockedFiles = newLocks;
+	if (!FilesToUnlock.IsEmpty())
+	{
+		ParallelFor(FilesToUnlock.Num(), [&](const int32 Index) -> void
+		{
+			OnFileLockChanged(FilesToUnlock[Index].Key, FilesToUnlock[Index].Value, false);
+		});
+	}
+
+	if (!FilesToLock.IsEmpty())
+	{
+		ParallelFor(FilesToLock.Num(), [&](const int32 Index) -> void
+		{
+			OnFileLockChanged(FilesToLock[Index].Key, FilesToLock[Index].Value, true);
+		});
+	}
+
+	{
+		FScopeLock ScopeLock(&LockedFilesMutex);
+		LockedFiles = newLocks;
+	}
 }
 
 void FGitLockedFilesCache::AddLockedFile(const FString& filePath, const FString& lockUser)
 {
-	LockedFiles.Add(filePath, lockUser);
+	{
+		FScopeLock ScopeLock(&LockedFilesMutex);
+		LockedFiles.Add(filePath, lockUser);
+	}
 	OnFileLockChanged(filePath, lockUser, true);
 }
 
 void FGitLockedFilesCache::RemoveLockedFile(const FString& filePath)
 {
-	FString user;
-	LockedFiles.RemoveAndCopyValue(filePath, user);
-	OnFileLockChanged(filePath, user, false);
+	FString User;
+	{
+		FScopeLock ScopeLock(&LockedFilesMutex);
+		LockedFiles.RemoveAndCopyValue(filePath, User);
+	}
+	OnFileLockChanged(filePath, User, false);
 }
 
-void FGitLockedFilesCache::OnFileLockChanged(const FString& filePath, const FString& lockUser, bool locked)
+void FGitLockedFilesCache::OnFileLockChanged(const FString& filePath, const FString& lockUser, const bool locked)
 {
 	const FString& LfsUserName = FGitSourceControlModule::Get().GetProvider().GetLockUser();
 	if (LfsUserName == lockUser)
@@ -1510,7 +1550,7 @@ void CheckRemote(const FString& InPathToGitBinary, const FString& InRepositoryRo
 
 const FTimespan CacheLimit = FTimespan::FromSeconds(30);
 
-bool GetAllLocks(const FString& InRepositoryRoot, const FString& GitBinaryFallback, TArray<FString>& OutErrorMessages, TMap<FString, FString>& OutLocks, bool bInvalidateCache)
+bool GetAllLocks(const FString& InRepositoryRoot, const FString& GitBinaryFallback, TArray<FString>& OutErrorMessages, TMap<FString, FString>& OutLocks, const bool bInvalidateCache)
 {
 	// You may ask, why are we ignoring state cache, and instead maintaining our own lock cache?
 	// The answer is that state cache updating is another operation, and those that update status
@@ -1730,25 +1770,36 @@ void UpdateFileStagingOnSaved(const FString& Filename, UPackage* Pkg, FObjectPos
 	
 bool UpdateFileStagingOnSavedInternal(const FString& Filename)
 {
-	bool bResult = false;
 	FGitSourceControlModule& GitSourceControl = FModuleManager::GetModuleChecked<FGitSourceControlModule>("GitSourceControl");
 	FGitSourceControlProvider& Provider = GitSourceControl.GetProvider();
+    
 	if (!Provider.IsGitAvailable())
 	{
-		return bResult;
+		return false;
 	}
+    
 	TSharedRef<FGitSourceControlState, ESPMode::ThreadSafe> State = Provider.GetStateInternal(Filename);
 
 	if (State->Changelist.GetName().Equals(TEXT("Staged")))
 	{
-		TArray<FString> File;
-		File.Add(Filename);
-		TArray<FString> DummyResults;
-		TArray<FString> DummyMsgs;
-		bResult = RunCommand(TEXT("add"), Provider.GetGitBinaryPath(), Provider.GetPathToRepositoryRoot(), FGitSourceControlModule::GetEmptyStringArray(), File, DummyResults, DummyMsgs);
+		// Capture these by value so they survive the async thread spawn and prevent crashes.
+		const FString GitBinaryPath = Provider.GetGitBinaryPath();
+		const FString RepositoryRoot = Provider.GetPathToRepositoryRoot();
+		const FString FileToAdd = Filename;
+
+		Async(EAsyncExecution::ThreadPool, [GitBinaryPath, RepositoryRoot, FileToAdd]()
+		{
+			TArray<FString> File;
+			File.Add(FileToAdd);
+			TArray<FString> DummyResults;
+			TArray<FString> DummyMsgs;
+           
+			RunCommand(TEXT("add"), GitBinaryPath, RepositoryRoot, FGitSourceControlModule::GetEmptyStringArray(), 
+				File, DummyResults, DummyMsgs);
+		});
 	}
-	
-	return bResult;
+    
+	return true;
 }
 	
 void UpdateStateOnAssetRename(const FAssetData& InAssetData, const FString& InOldName)
@@ -1944,7 +1995,7 @@ bool RunDumpToFile(const FString& InPathToGitBinary, const FString& InRepository
  *
  * @see SHistoryRevisionListRowContent::GenerateWidgetForColumn(): "add", "edit", "delete", "branch" and "integrate" (everything else is taken like "edit")
  */
-static FString LogStatusToString(TCHAR InStatus)
+static FString LogStatusToString(const TCHAR InStatus)
 {
 	switch (InStatus)
 	{
@@ -2099,7 +2150,7 @@ public:
 };
 
 // Run a Git "log" command and parse it.
-bool RunGetHistory(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const FString& InFile, bool bMergeConflict,
+bool RunGetHistory(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const FString& InFile, const bool bMergeConflict,
 				   TArray<FString>& OutErrorMessages, TGitSourceControlHistory& OutHistory)
 {
 	bool bResults;
@@ -2262,7 +2313,7 @@ bool CollectNewStates(const TMap<FString, FGitSourceControlState>& InStates, TMa
 	return true;
 }
 
-bool CollectNewStates(const TArray<FString>& InFiles, TMap<const FString, FGitState>& OutResults, EFileState::Type FileState, ETreeState::Type TreeState, ELockState::Type LockState, ERemoteState::Type RemoteState)
+bool CollectNewStates(const TArray<FString>& InFiles, TMap<const FString, FGitState>& OutResults, const EFileState::Type FileState, const ETreeState::Type TreeState, const ELockState::Type LockState, const ERemoteState::Type RemoteState)
 {
 	if (InFiles.Num() == 0)
 	{
@@ -2381,7 +2432,7 @@ bool CheckLFSLockable(const FString& InPathToGitBinary, const FString& InReposit
 	return true;
 }
 
-bool FetchRemote(const FString& InPathToGitBinary, const FString& InPathToRepositoryRoot, bool InUsingGitLfsLocking, TArray<FString>& OutResults, TArray<FString>& OutErrorMessages)
+bool FetchRemote(const FString& InPathToGitBinary, const FString& InPathToRepositoryRoot, const bool InUsingGitLfsLocking, TArray<FString>& OutResults, TArray<FString>& OutErrorMessages)
 {
 	// Force refresh lock states
 	if (InUsingGitLfsLocking)
