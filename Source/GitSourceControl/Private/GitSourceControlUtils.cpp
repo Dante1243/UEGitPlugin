@@ -1727,7 +1727,7 @@ bool UpdateChangelistStateByCommand()
 	
 // Run a batch of Git "status" command to update status of given files and/or directories.
 bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool InUsingLfsLocking, const TArray<FString>& InFiles,
-					 TArray<FString>& OutErrorMessages, TMap<FString, FGitSourceControlState>& OutStates)
+					 TArray<FString>& OutErrorMessages, TMap<FString, FGitSourceControlState>& OutStates, const bool bCheckRemote)
 {
 	// Remove files that aren't in the repository
 	const TArray<FString>& RepoFiles = InFiles.FilterByPredicate([InRepositoryRoot](const FString& File) { return File.StartsWith(InRepositoryRoot); });
@@ -1739,7 +1739,7 @@ bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InReposito
 
 	TArray<FString> Parameters;
 	Parameters.Add(TEXT("--porcelain"));
-	Parameters.Add(TEXT("-uall")); // make sure we use -uall to list all files instead of directories
+	Parameters.Add(TEXT("-unormal"));
 	// We skip checking ignored since no one ignores files that Unreal would read in as revision controlled (Content/{*.uasset,*.umap},Config/*.ini).
 	TArray<FString> Results;
 	// avoid locking the index when not needed (useful for status updates)
@@ -1758,7 +1758,10 @@ bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InReposito
 	
 	UpdateChangelistStateByCommand();
 
-	CheckRemote(InPathToGitBinary, InRepositoryRoot, RepoFiles, OutErrorMessages, OutStates);
+	if (bCheckRemote)
+	{
+		CheckRemote(InPathToGitBinary, InRepositoryRoot, RepoFiles, OutErrorMessages, OutStates);
+	}
 
 	return bResult;
 }

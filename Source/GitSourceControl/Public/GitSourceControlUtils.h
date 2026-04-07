@@ -246,7 +246,7 @@ void CheckRemote(const FString& InPathToGitBinary, const FString& InRepositoryRo
  * @returns true if the command succeeded and returned no errors
  */
 bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool InUsingLfsLocking, const TArray<FString>& InFiles,
-					 TArray<FString>& OutErrorMessages, TMap<FString, FGitSourceControlState>& OutStates);
+					 TArray<FString>& OutErrorMessages, TMap<FString, FGitSourceControlState>& OutStates, const bool bCheckRemote = false);
 	
 /**
  * Keep Consistency of being file staged

@@ -153,7 +153,8 @@ void FGitSourceControlProvider::CheckRepositoryStatus()
 											  FPaths::ConvertRelativePathToFull(FPaths::ProjectConfigDir()),
 											  FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath())};
 			TArray<FString> StatusErrorMessages;
-			if (!GitSourceControlUtils::RunUpdateStatus(PathToGitBinary, PathToRepositoryRoot, bUsingGitLfsLocking, ProjectDirs, StatusErrorMessages, States))
+			if (!GitSourceControlUtils::RunUpdateStatus(PathToGitBinary, PathToRepositoryRoot, bUsingGitLfsLocking, ProjectDirs, 
+				StatusErrorMessages, States, true))
 			{
 				return false;
 			}
