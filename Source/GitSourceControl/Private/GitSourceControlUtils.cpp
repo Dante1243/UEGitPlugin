@@ -1549,10 +1549,12 @@ void CheckRemote(const FString& InPathToGitBinary, const FString& InRepositoryRo
 	OutErrorMessages.Append(ErrorMessages);
 }
 
-const FTimespan CacheLimit = FTimespan::FromSeconds(30);
+} // namespace GitSourceControlUtils
 
 void FGitLockedFilesCache::RequestAsyncRefresh(const FString& InRepositoryRoot, const FString& GitBinaryFallback)
 {
+	using namespace GitSourceControlUtils;
+
 	bool bExpected = false;
 	if (!bAsyncRefreshInProgress.compare_exchange_strong(bExpected, true))
 	{
@@ -1570,7 +1572,7 @@ void FGitLockedFilesCache::RequestAsyncRefresh(const FString& InRepositoryRoot, 
 	{
 		TArray<FString> ErrorMessages;
 		TArray<FString> Results;
-		bool bResult = RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback,
+		bool bResult = GitSourceControlUtils::RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback,
 			FGitSourceControlModule::GetEmptyStringArray(), FGitSourceControlModule::GetEmptyStringArray(),
 			Results, ErrorMessages);
 
@@ -1592,7 +1594,7 @@ void FGitLockedFilesCache::RequestAsyncRefresh(const FString& InRepositoryRoot, 
 			Params.Add(TEXT("--cached"));
 
 			Results.Reset();
-			bResult = RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback,
+			bResult = GitSourceControlUtils::RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback,
 				Params, FGitSourceControlModule::GetEmptyStringArray(), Results, ErrorMessages);
 			for (const FString& Result : Results)
 			{
@@ -1606,7 +1608,7 @@ void FGitLockedFilesCache::RequestAsyncRefresh(const FString& InRepositoryRoot, 
 			Params.Reset(1);
 			Params.Add(TEXT("--local"));
 			Results.Reset();
-			RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback,
+			GitSourceControlUtils::RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback,
 				Params, FGitSourceControlModule::GetEmptyStringArray(), Results, ErrorMessages);
 			for (const FString& Result : Results)
 			{
@@ -1627,6 +1629,11 @@ void FGitLockedFilesCache::RequestAsyncRefresh(const FString& InRepositoryRoot, 
 		bAsyncRefreshInProgress.store(false);
 	});
 }
+
+namespace GitSourceControlUtils
+{
+
+const FTimespan CacheLimit = FTimespan::FromSeconds(30);
 
 bool GetAllLocks(const FString& InRepositoryRoot, const FString& GitBinaryFallback, TArray<FString>& OutErrorMessages, TMap<FString, FString>& OutLocks, const bool bInvalidateCache)
 {
