@@ -1576,20 +1576,18 @@ void FGitLockedFilesCache::RequestAsyncRefresh(const FString& InRepositoryRoot, 
 			FGitSourceControlModule::GetEmptyStringArray(), FGitSourceControlModule::GetEmptyStringArray(),
 			Results, ErrorMessages);
 
+		TMap<FString, FString> NewLocks;
+
 		if (bResult)
 		{
-			TMap<FString, FString> NewLocks;
 			for (const FString& Result : Results)
 			{
 				FGitLfsLocksParser LockFile(InRepositoryRoot, Result);
 				NewLocks.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
 			}
-			LastUpdated = FDateTime::Now();
-			SetLockedFiles(NewLocks);
 		}
 		else
 		{
-			TMap<FString, FString> NewLocks;
 			TArray<FString> Params;
 			Params.Add(TEXT("--cached"));
 
@@ -1618,15 +1616,17 @@ void FGitLockedFilesCache::RequestAsyncRefresh(const FString& InRepositoryRoot, 
 					NewLocks.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
 				}
 			}
-
-			if (!NewLocks.IsEmpty())
-			{
-				LastUpdated = FDateTime::Now();
-				SetLockedFiles(NewLocks);
-			}
 		}
 
-		bAsyncRefreshInProgress.store(false);
+		AsyncTask(ENamedThreads::GameThread, [FinalLocks = MoveTemp(NewLocks)]()
+		{
+			if (!FinalLocks.IsEmpty())
+			{
+				LastUpdated = FDateTime::Now();
+				SetLockedFiles(FinalLocks);
+			}
+			bAsyncRefreshInProgress.store(false);
+		});
 	});
 }
 
