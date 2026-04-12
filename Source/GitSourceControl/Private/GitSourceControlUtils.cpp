@@ -79,6 +79,7 @@ const FString& FGitScopedTempFile::GetFilename() const
 FDateTime FGitLockedFilesCache::LastUpdated = FDateTime::MinValue();
 TMap<FString, FString> FGitLockedFilesCache::LockedFiles = TMap<FString, FString>();
 FCriticalSection FGitLockedFilesCache::LockedFilesMutex;
+std::atomic<bool> FGitLockedFilesCache::bAsyncRefreshInProgress{false};
 
 const TMap<FString, FString>& FGitLockedFilesCache::GetLockedFiles()
 {
@@ -160,7 +161,7 @@ void FGitLockedFilesCache::OnFileLockChanged(const FString& filePath, const FStr
 	const FString& LfsUserName = FGitSourceControlModule::Get().GetProvider().GetLockUser();
 	if (LfsUserName == lockUser)
 	{
-		FPlatformFileManager::Get().GetPlatformFile().SetReadOnly(*filePath, !locked);		
+		FPlatformFileManager::Get().GetPlatformFile().SetReadOnly(*filePath, !locked);
 	}
 }
 
@@ -1550,16 +1551,85 @@ void CheckRemote(const FString& InPathToGitBinary, const FString& InRepositoryRo
 
 const FTimespan CacheLimit = FTimespan::FromSeconds(30);
 
+void FGitLockedFilesCache::RequestAsyncRefresh(const FString& InRepositoryRoot, const FString& GitBinaryFallback)
+{
+	bool bExpected = false;
+	if (!bAsyncRefreshInProgress.compare_exchange_strong(bExpected, true))
+	{
+		return;
+	}
+
+	FString CapturedLockUser;
+	FGitSourceControlModule* GitSourceControl = FGitSourceControlModule::GetThreadSafe();
+	if (GitSourceControl)
+	{
+		CapturedLockUser = GitSourceControl->GetProvider().GetLockUser();
+	}
+
+	Async(EAsyncExecution::ThreadPool, [InRepositoryRoot, GitBinaryFallback, CapturedLockUser]()
+	{
+		TArray<FString> ErrorMessages;
+		TArray<FString> Results;
+		bool bResult = RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback,
+			FGitSourceControlModule::GetEmptyStringArray(), FGitSourceControlModule::GetEmptyStringArray(),
+			Results, ErrorMessages);
+
+		if (bResult)
+		{
+			TMap<FString, FString> NewLocks;
+			for (const FString& Result : Results)
+			{
+				FGitLfsLocksParser LockFile(InRepositoryRoot, Result);
+				NewLocks.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
+			}
+			LastUpdated = FDateTime::Now();
+			SetLockedFiles(NewLocks);
+		}
+		else
+		{
+			TMap<FString, FString> NewLocks;
+			TArray<FString> Params;
+			Params.Add(TEXT("--cached"));
+
+			Results.Reset();
+			bResult = RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback,
+				Params, FGitSourceControlModule::GetEmptyStringArray(), Results, ErrorMessages);
+			for (const FString& Result : Results)
+			{
+				FGitLfsLocksParser LockFile(InRepositoryRoot, Result);
+				if (LockFile.LockUser != CapturedLockUser)
+				{
+					NewLocks.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
+				}
+			}
+
+			Params.Reset(1);
+			Params.Add(TEXT("--local"));
+			Results.Reset();
+			RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback,
+				Params, FGitSourceControlModule::GetEmptyStringArray(), Results, ErrorMessages);
+			for (const FString& Result : Results)
+			{
+				FGitLfsLocksParser LockFile(InRepositoryRoot, Result);
+				if (LockFile.LockUser == CapturedLockUser)
+				{
+					NewLocks.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
+				}
+			}
+
+			if (!NewLocks.IsEmpty())
+			{
+				LastUpdated = FDateTime::Now();
+				SetLockedFiles(NewLocks);
+			}
+		}
+
+		bAsyncRefreshInProgress.store(false);
+	});
+}
+
 bool GetAllLocks(const FString& InRepositoryRoot, const FString& GitBinaryFallback, TArray<FString>& OutErrorMessages, TMap<FString, FString>& OutLocks, const bool bInvalidateCache)
 {
-	// You may ask, why are we ignoring state cache, and instead maintaining our own lock cache?
-	// The answer is that state cache updating is another operation, and those that update status
-	// (and thus the state cache) are using GetAllLocks. However, querying remote locks are almost always
-	// irrelevant in most of those update status cases. So, we need to provide a fast way to provide
-	// an updated local lock state. We could do this through the relevant lfs lock command arguments, which
-	// as you will see below, we use only for offline cases, but the exec cost of doing this isn't worth it
-	// when we can easily maintain this cache here. So, we are really emulating an internal Git LFS locks cache
-	// call, which gets fed into the state cache, rather than reimplementing the state cache :)
 	const FDateTime CurrentTime = FDateTime::Now();
 	bool bCacheExpired = bInvalidateCache;
 	if (!bInvalidateCache)
@@ -1567,84 +1637,14 @@ bool GetAllLocks(const FString& InRepositoryRoot, const FString& GitBinaryFallba
 		const FTimespan CacheTimeElapsed = CurrentTime - FGitLockedFilesCache::LastUpdated;
 		bCacheExpired = CacheTimeElapsed > CacheLimit;
 	}
-	bool bResult = false;
+
 	if (bCacheExpired)
 	{
-		// Our cache expired, or they asked us to expire cache. Query locks directly from the remote server.
-		TArray<FString> ErrorMessages;
-		TArray<FString> Results;
-		bResult = RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback, FGitSourceControlModule::GetEmptyStringArray(), FGitSourceControlModule::GetEmptyStringArray(),
-								Results, OutErrorMessages);
-		if (bResult)
-		{
-			for (const FString& Result : Results)
-			{
-				FGitLfsLocksParser LockFile(InRepositoryRoot, Result);
-#if UE_BUILD_DEBUG && GIT_DEBUG_STATUS
-				UE_LOG(LogSourceControl, Log, TEXT("LockedFile(%s, %s)"), *LockFile.LocalFilename, *LockFile.LockUser);
-#endif
-				OutLocks.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
-			}
-			FGitLockedFilesCache::LastUpdated = CurrentTime;
-			FGitLockedFilesCache::SetLockedFiles(OutLocks);
-			return bResult;
-		}
-		// We tried to invalidate the UE cache, but we failed for some reason. Try updating lock state from LFS cache.
-		// Get the last known state of remote locks
-		TArray<FString> Params;
-		Params.Add(TEXT("--cached"));
-
-		FGitSourceControlModule* GitSourceControl = FGitSourceControlModule::GetThreadSafe();
-		if (!GitSourceControl)
-		{
-			bResult = false;
-		}
-		else
-		{
-			FGitSourceControlProvider& Provider = GitSourceControl->GetProvider();
-			const FString& LockUser = Provider.GetLockUser();
-
-			Results.Reset();
-			bResult = RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback, Params, FGitSourceControlModule::GetEmptyStringArray(), Results, OutErrorMessages);
-			for (const FString& Result : Results)
-			{
-				FGitLfsLocksParser LockFile(InRepositoryRoot, Result);
-	#if UE_BUILD_DEBUG && GIT_DEBUG_STATUS
-				UE_LOG(LogSourceControl, Log, TEXT("LockedFile(%s, %s)"), *LockFile.LocalFilename, *LockFile.LockUser);
-	#endif
-				// Only update remote locks
-				if (LockFile.LockUser != LockUser)
-				{
-					OutLocks.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
-				}
-			}
-			// Get the latest local state of our own locks
-			Params.Reset(1);
-			Params.Add(TEXT("--local"));
-
-			Results.Reset();
-			bResult &= RunLFSCommand(TEXT("locks"), InRepositoryRoot, GitBinaryFallback, Params, FGitSourceControlModule::GetEmptyStringArray(), Results, OutErrorMessages);
-			for (const FString& Result : Results)
-			{
-				FGitLfsLocksParser LockFile(InRepositoryRoot, Result);
-	#if UE_BUILD_DEBUG && GIT_DEBUG_STATUS
-				UE_LOG(LogSourceControl, Log, TEXT("LockedFile(%s, %s)"), *LockFile.LocalFilename, *LockFile.LockUser);
-	#endif
-				// Only update local locks
-				if (LockFile.LockUser == LockUser)
-				{
-					OutLocks.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
-				}
-			}
-		}
+		FGitLockedFilesCache::RequestAsyncRefresh(InRepositoryRoot, GitBinaryFallback);
 	}
-	if (!bResult)
-	{
-		// We can use our internally tracked local lock cache (an effective combination of --cached and --local)
-		OutLocks = FGitLockedFilesCache::GetLockedFiles();
-		bResult = true;
-	}
-	return bResult;
+
+	OutLocks = FGitLockedFilesCache::GetLockedFiles();
+	return true;
 }
 
 void GetLockedFiles(const TArray<FString>& InFiles, TArray<FString>& OutFiles)

@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "GitSourceControlRevision.h"
 #include "GitSourceControlState.h"
 #include "UObject/ObjectSaveContext.h"
@@ -41,16 +43,17 @@ class FGitLockedFilesCache
 public:
 	static FDateTime LastUpdated;
 
- static const TMap<FString, FString>& GetLockedFiles();
- static void SetLockedFiles(const TMap<FString, FString>& newLocks);
- static void AddLockedFile(const FString& filePath, const FString& lockUser);
- static void RemoveLockedFile(const FString& filePath);
+	static const TMap<FString, FString>& GetLockedFiles();
+	static void SetLockedFiles(const TMap<FString, FString>& newLocks);
+	static void AddLockedFile(const FString& filePath, const FString& lockUser);
+	static void RemoveLockedFile(const FString& filePath);
+	static void RequestAsyncRefresh(const FString& InRepositoryRoot, const FString& GitBinaryFallback);
 
 private:
- static void OnFileLockChanged(const FString& filePath, const FString& lockUser, bool locked);
- // update local read/write state when our own lock statuses change
+	static void OnFileLockChanged(const FString& filePath, const FString& lockUser, bool locked);
 	static TMap<FString, FString> LockedFiles;
 	static FCriticalSection LockedFilesMutex;
+	static std::atomic<bool> bAsyncRefreshInProgress;
 };
 
 namespace GitSourceControlUtils
