@@ -1763,7 +1763,10 @@ bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InReposito
 		ParseStatusResults(InPathToGitBinary, InRepositoryRoot, InUsingLfsLocking, RepoFiles, ResultsMap, OutStates);
 	}
 	
-	UpdateChangelistStateByCommand();
+	if (IsInGameThread())
+	{
+		UpdateChangelistStateByCommand();
+	}
 
 	if (bCheckRemote)
 	{
