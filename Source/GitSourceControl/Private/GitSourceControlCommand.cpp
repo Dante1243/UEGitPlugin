@@ -35,9 +35,12 @@ void FGitSourceControlCommand::UpdateRepositoryRootIfSubmodule(TArray<FString>& 
 
 bool FGitSourceControlCommand::DoWork()
 {
-	bCommandSuccessful = Worker->Execute(*this);
-	FPlatformAtomics::InterlockedExchange(&bExecuteProcessed, 1);
+	if (FModuleManager::Get().IsModuleLoaded("GitSourceControl"))
+	{
+		bCommandSuccessful = Worker->Execute(*this);
+	}
 
+	FPlatformAtomics::InterlockedExchange(&bExecuteProcessed, 1);
 	return bCommandSuccessful;
 }
 
