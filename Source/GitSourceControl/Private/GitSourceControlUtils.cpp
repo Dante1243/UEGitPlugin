@@ -1729,18 +1729,12 @@ bool UpdateChangelistStateByCommand()
 		UE_LOG(LogSourceControl, Warning, TEXT("GitSourceControl module is not loaded."));
 		return false;
 	}
-<<<<<<< Updated upstream
-
-	FGitSourceControlModule& GitSourceControl = FGitSourceControlModule::Get();
-=======
-	
 	FGitSourceControlModule* GitSourceControlPtr = FGitSourceControlModule::GetThreadSafe();
 	if (!GitSourceControlPtr)
 	{
 		return false;
 	}
 	FGitSourceControlModule& GitSourceControl = *GitSourceControlPtr;
->>>>>>> Stashed changes
 	FGitSourceControlProvider& Provider = GitSourceControl.GetProvider();
 	if (!Provider.IsGitAvailable())
 	{
@@ -1873,12 +1867,6 @@ bool UpdateFileStagingOnSavedInternal(const FString& Filename)
 	{
 		return false;
 	}
-<<<<<<< Updated upstream
-	FGitSourceControlModule& GitSourceControl = FGitSourceControlModule::Get();
-	FGitSourceControlProvider& Provider = GitSourceControl.GetProvider();
-    
-=======
-
 	FGitSourceControlModule* GitSourceControlPtr = FGitSourceControlModule::GetThreadSafe();
 	if (!GitSourceControlPtr)
 	{
@@ -1886,7 +1874,6 @@ bool UpdateFileStagingOnSavedInternal(const FString& Filename)
 	}
 	FGitSourceControlProvider& Provider = GitSourceControlPtr->GetProvider();
 
->>>>>>> Stashed changes
 	if (!Provider.IsGitAvailable())
 	{
 		return false;
@@ -1918,17 +1905,12 @@ bool UpdateFileStagingOnSavedInternal(const FString& Filename)
 	
 void UpdateStateOnAssetRename(const FAssetData& InAssetData, const FString& InOldName)
 {
-<<<<<<< Updated upstream
-	FGitSourceControlModule& GitSourceControl = FGitSourceControlModule::Get();
-	FGitSourceControlProvider& Provider = GitSourceControl.GetProvider();
-=======
 	FGitSourceControlModule* GitSourceControlPtr = FGitSourceControlModule::GetThreadSafe();
 	if (!GitSourceControlPtr)
 	{
 		return;
 	}
 	FGitSourceControlProvider& Provider = GitSourceControlPtr->GetProvider();
->>>>>>> Stashed changes
 	if (!Provider.IsGitAvailable())
 	{
 		return;
