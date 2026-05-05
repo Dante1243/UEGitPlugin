@@ -161,7 +161,11 @@ void FGitSourceControlModule::SaveSettings()
 
 void FGitSourceControlModule::SetLastErrors(const TArray<FText>& InErrors)
 {
+<<<<<<< Updated upstream
 	FGitSourceControlModule* Module = FGitSourceControlModule::GetThreadSafe();
+=======
+	FGitSourceControlModule* Module = GetThreadSafe();
+>>>>>>> Stashed changes
 	if (Module)
 	{
 		Module->GetProvider().SetLastErrors(InErrors);

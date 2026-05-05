@@ -161,7 +161,11 @@ void FGitSourceControlProvider::CheckRepositoryStatus()
 				{
 					GitSourceControlUtils::UpdateCachedStates(Results);
 				}
+<<<<<<< Updated upstream
 				if (!FApp::IsUnattended() && !IsRunningCommandlet())
+=======
+				if (!IsRunningCommandlet() && !FApp::IsUnattended())
+>>>>>>> Stashed changes
 				{
 					Runner = new FGitSourceControlRunner();
 				}

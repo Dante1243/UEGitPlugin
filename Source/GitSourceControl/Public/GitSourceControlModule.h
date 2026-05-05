@@ -116,7 +116,11 @@ public:
 	 */
 	static inline FGitSourceControlModule& Get()
 	{
+<<<<<<< Updated upstream
 		checkf(Singleton, TEXT("GitSourceControl module accessed before StartupModule or after ShutdownModule"));
+=======
+		checkf(Singleton, TEXT("FGitSourceControlModule::Get() called before StartupModule or after ShutdownModule"));
+>>>>>>> Stashed changes
 		return *Singleton;
 	}
 

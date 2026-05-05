@@ -1729,8 +1729,18 @@ bool UpdateChangelistStateByCommand()
 		UE_LOG(LogSourceControl, Warning, TEXT("GitSourceControl module is not loaded."));
 		return false;
 	}
+<<<<<<< Updated upstream
 
 	FGitSourceControlModule& GitSourceControl = FGitSourceControlModule::Get();
+=======
+	
+	FGitSourceControlModule* GitSourceControlPtr = FGitSourceControlModule::GetThreadSafe();
+	if (!GitSourceControlPtr)
+	{
+		return false;
+	}
+	FGitSourceControlModule& GitSourceControl = *GitSourceControlPtr;
+>>>>>>> Stashed changes
 	FGitSourceControlProvider& Provider = GitSourceControl.GetProvider();
 	if (!Provider.IsGitAvailable())
 	{
@@ -1863,14 +1873,25 @@ bool UpdateFileStagingOnSavedInternal(const FString& Filename)
 	{
 		return false;
 	}
+<<<<<<< Updated upstream
 	FGitSourceControlModule& GitSourceControl = FGitSourceControlModule::Get();
 	FGitSourceControlProvider& Provider = GitSourceControl.GetProvider();
     
+=======
+
+	FGitSourceControlModule* GitSourceControlPtr = FGitSourceControlModule::GetThreadSafe();
+	if (!GitSourceControlPtr)
+	{
+		return false;
+	}
+	FGitSourceControlProvider& Provider = GitSourceControlPtr->GetProvider();
+
+>>>>>>> Stashed changes
 	if (!Provider.IsGitAvailable())
 	{
 		return false;
 	}
-    
+
 	TSharedRef<FGitSourceControlState, ESPMode::ThreadSafe> State = Provider.GetStateInternal(Filename);
 
 	if (State->Changelist.GetName().Equals(TEXT("Staged")))
@@ -1897,14 +1918,23 @@ bool UpdateFileStagingOnSavedInternal(const FString& Filename)
 	
 void UpdateStateOnAssetRename(const FAssetData& InAssetData, const FString& InOldName)
 {
+<<<<<<< Updated upstream
 	FGitSourceControlModule& GitSourceControl = FGitSourceControlModule::Get();
 	FGitSourceControlProvider& Provider = GitSourceControl.GetProvider();
+=======
+	FGitSourceControlModule* GitSourceControlPtr = FGitSourceControlModule::GetThreadSafe();
+	if (!GitSourceControlPtr)
+	{
+		return;
+	}
+	FGitSourceControlProvider& Provider = GitSourceControlPtr->GetProvider();
+>>>>>>> Stashed changes
 	if (!Provider.IsGitAvailable())
 	{
-		return ;
+		return;
 	}
-	TSharedRef<FGitSourceControlState, ESPMode::ThreadSafe> State = Provider.GetStateInternal(InOldName);	
-	
+	TSharedRef<FGitSourceControlState, ESPMode::ThreadSafe> State = Provider.GetStateInternal(InOldName);
+
 	State->LocalFilename = InAssetData.GetObjectPathString();
 }
 
