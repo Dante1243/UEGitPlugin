@@ -709,6 +709,20 @@ TArray< TSharedRef<ISourceControlLabel> > FGitSourceControlProvider::GetLabels( 
 	return Tags;
 }
 
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 7
+bool FGitSourceControlProvider::GetStateBranchAtIndex(int32 BranchIndex, FString& OutBranchName) const
+{
+	auto StatusBranchNames = GetStatusBranchNames();
+
+	if (BranchIndex >= 0 && BranchIndex < StatusBranchNames.Num())
+	{
+		OutBranchName = StatusBranchNames[BranchIndex];
+		return true;
+	}
+	return false;
+}
+#endif
+
 #if ENGINE_MAJOR_VERSION >= 5
 TArray<FSourceControlChangelistRef> FGitSourceControlProvider::GetChangelists( EStateCacheUsage::Type InStateCacheUsage )
 {
