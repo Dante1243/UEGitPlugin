@@ -5,6 +5,8 @@
 
 #include "GitSourceControlState.h"
 
+#include "HAL/FileManager.h"
+
 #if ENGINE_MAJOR_VERSION >= 5
 #include "Textures/SlateIcon.h"
 #if ENGINE_MINOR_VERSION >= 2
@@ -282,7 +284,10 @@ bool FGitSourceControlState::IsCheckedOut() const
 	else
 	{
 		// We check for modified here too, because sometimes you don't lock a file but still want to push it. CanCheckout still true, so that you can lock it later...
-		return State.LockState == ELockState::Locked || (State.FileState == EFileState::Modified && State.LockState != ELockState::LockedOther);
+		// But only when the file is actually writable: a modified file left read-only on disk is not editable, and reporting it as checked out
+		// makes the editor skip auto-checkout and then fail the save with "the file is read-only".
+		return State.LockState == ELockState::Locked ||
+			   (State.FileState == EFileState::Modified && State.LockState != ELockState::LockedOther && !IFileManager::Get().IsReadOnly(*LocalFilename));
 	}
 }
 
